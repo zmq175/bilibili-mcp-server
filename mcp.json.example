@@ -6,14 +6,9 @@
     "========== 方式一：本地运行（stdio）==========": {},
 
     "bilibili-local": {
-      "_comment": "适用于 Cursor / Claude Desktop 本地部署",
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "D:/projects/bilibili-mcp-server",
-        "bilibili-mcp"
-      ],
+      "_comment": "适用于 Cursor / Claude Desktop 本地部署，无需克隆代码，uvx 自动安装",
+      "command": "uvx",
+      "args": ["bilibili-live-mcp"],
       "env": {
         "SILICONFLOW_API_KEY": "sk-你的硅基流动Key"
       }
