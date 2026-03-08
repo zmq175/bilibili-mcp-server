@@ -2,6 +2,9 @@
 
 aicu.cc 是第三方数据平台，数据非实时。
 该站使用 Cloudflare Bot 检测，需要 curl_cffi 模拟真实浏览器 TLS 指纹。
+
+注意：aicu.cc 会封锁数据中心 IP（如云服务器），本功能在云端部署时可能不可用，
+建议本地部署（uvx bilibili-live-mcp）使用。
 """
 
 from curl_cffi.requests import AsyncSession
@@ -10,6 +13,13 @@ BASE_URL = "https://api.aicu.cc/api/v3"
 
 # curl_cffi 通过 impersonate 参数模拟真实浏览器，无需手动设置 headers
 _IMPERSONATE = "chrome124"
+
+_CLOUD_BLOCK_MSG = (
+    "aicu.cc 返回 403，当前服务器 IP 被 Cloudflare 拦截。\n"
+    "此功能在云端部署（ModelScope 等）受限，请改用本地部署：\n"
+    "  uvx bilibili-live-mcp\n"
+    "详见 README：https://github.com/zmq175/bilibili-mcp-server"
+)
 
 
 async def _get(url: str, params: dict) -> dict:
@@ -21,6 +31,8 @@ async def _get(url: str, params: dict) -> dict:
             headers={"Referer": "https://www.aicu.cc/"},
             timeout=15,
         )
+    if resp.status_code == 403:
+        raise ValueError(_CLOUD_BLOCK_MSG)
     if resp.status_code != 200:
         raise ValueError(f"aicu.cc 请求失败: HTTP {resp.status_code}")
     data = resp.json()

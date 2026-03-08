@@ -58,6 +58,7 @@ async def get_user_medals(
 
     返回该用户持有的所有粉丝牌，包含牌名、等级和对应主播的 UID。
     数据来源：aicu.cc（非实时，有更新延迟）。
+    注意：aicu.cc 封锁云服务器 IP，此工具在云端部署时不可用，请使用本地部署。
     """
     return await _get_user_medals(uid=uid)
 
@@ -73,6 +74,7 @@ async def get_user_comments(
 
     返回评论内容、发送时间、所在视频/动态 ID 等信息。
     数据来源：aicu.cc（非实时，有更新延迟）。
+    注意：aicu.cc 封锁云服务器 IP，此工具在云端部署时不可用，请使用本地部署。
     """
     return await _get_user_comments(uid=uid, page=page, page_size=page_size, mode=mode)
 
@@ -87,6 +89,7 @@ async def get_user_danmaku(
 
     返回弹幕内容、发送时间、所在视频 ID、弹幕在视频中的时间轴位置（毫秒）。
     数据来源：aicu.cc（非实时，有更新延迟）。
+    注意：aicu.cc 封锁云服务器 IP，此工具在云端部署时不可用，请使用本地部署。
     """
     return await _get_user_danmaku(uid=uid, page=page, page_size=page_size)
 
@@ -101,6 +104,7 @@ async def get_user_live_danmaku(
 
     结果按直播间分组，每组包含主播信息和该直播间的弹幕列表。
     数据来源：aicu.cc（非实时，有更新延迟）。
+    注意：aicu.cc 封锁云服务器 IP，此工具在云端部署时不可用，请使用本地部署。
     """
     return await _get_user_live_danmaku(uid=uid, page=page, page_size=page_size)
 
