@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bilibili": {
+      "command": "D:\\projects\\bilibili-mcp-server\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "bilibili_mcp.server"]
+    }
+  }
+}
