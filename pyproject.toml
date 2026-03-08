@@ -1,6 +1,6 @@
 [project]
 name = "bilibili-live-mcp"
-version = "0.1.0"
+version = "0.2.2"
 description = "B站 MCP Server - 查询直播状态、粉丝牌、历史评论、历史弹幕，支持直播内容 ASR+视觉分析"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,6 +8,7 @@ dependencies = [
     "fastmcp>=2.0",
     "httpx>=0.27",
     "imageio-ffmpeg>=0.6.0",
+    "curl-cffi>=0.7",
 ]
 
 [project.scripts]

@@ -1,8 +1,6 @@
 """aicu.py 单元测试：get_user_medals / get_user_comments / get_user_danmaku / get_user_live_danmaku。"""
 
 import pytest
-import httpx
-
 from unittest.mock import AsyncMock, MagicMock, patch
 from bilibili_mcp import aicu
 
@@ -10,25 +8,33 @@ from bilibili_mcp import aicu
 # ─── 辅助工厂 ────────────────────────────────────────────────────────────────
 
 def _mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
-    resp = MagicMock(spec=httpx.Response)
+    resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_data
-    resp.raise_for_status = MagicMock()
     return resp
 
 
-def _patch_client(json_data: dict):
-    """返回 patch 上下文，mock httpx.AsyncClient.get 返回指定数据。"""
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-    mock_client.get = AsyncMock(return_value=_mock_response(json_data))
-    return patch("bilibili_mcp.aicu.httpx.AsyncClient", return_value=mock_client), mock_client
+def _patch_get(json_data: dict, status_code: int = 200):
+    """直接 patch aicu._get，返回指定数据。"""
+    return patch(
+        "bilibili_mcp.aicu._get",
+        new=AsyncMock(return_value={"code": 0, **json_data} if status_code == 200 else {}),
+    )
+
+
+def _patch_get_raw(return_value: dict):
+    """patch _get 返回完整 dict（含 code 字段）。"""
+    return patch("bilibili_mcp.aicu._get", new=AsyncMock(return_value=return_value))
+
+
+def _patch_get_error(message: str = "查询失败"):
+    """patch _get 抛出 ValueError。"""
+    return patch("bilibili_mcp.aicu._get", new=AsyncMock(side_effect=ValueError(f"aicu.cc 错误: {message}")))
 
 
 # ─── get_user_medals ─────────────────────────────────────────────────────────
 
-MEDALS_RESPONSE = {
+MEDALS_DATA = {
     "code": 0,
     "data": {
         "list": [
@@ -41,8 +47,7 @@ MEDALS_RESPONSE = {
 
 @pytest.mark.asyncio
 async def test_get_user_medals_success():
-    ctx, _ = _patch_client(MEDALS_RESPONSE)
-    with ctx:
+    with _patch_get_raw(MEDALS_DATA):
         result = await aicu.get_user_medals(uid=12345)
 
     assert result["uid"] == 12345
@@ -54,8 +59,7 @@ async def test_get_user_medals_success():
 
 @pytest.mark.asyncio
 async def test_get_user_medals_empty():
-    ctx, _ = _patch_client({"code": 0, "data": {"list": []}})
-    with ctx:
+    with _patch_get_raw({"code": 0, "data": {"list": []}}):
         result = await aicu.get_user_medals(uid=12345)
 
     assert result["total"] == 0
@@ -64,15 +68,14 @@ async def test_get_user_medals_empty():
 
 @pytest.mark.asyncio
 async def test_get_user_medals_api_error():
-    ctx, _ = _patch_client({"code": -1, "message": "用户不存在"})
-    with ctx:
+    with _patch_get_error("用户不存在"):
         with pytest.raises(ValueError, match="aicu.cc 错误"):
             await aicu.get_user_medals(uid=0)
 
 
 # ─── get_user_comments ───────────────────────────────────────────────────────
 
-COMMENTS_RESPONSE = {
+COMMENTS_DATA = {
     "code": 0,
     "data": {
         "cursor": {"all_count": 100, "is_end": False},
@@ -86,8 +89,7 @@ COMMENTS_RESPONSE = {
 
 @pytest.mark.asyncio
 async def test_get_user_comments_success():
-    ctx, _ = _patch_client(COMMENTS_RESPONSE)
-    with ctx:
+    with _patch_get_raw(COMMENTS_DATA):
         result = await aicu.get_user_comments(uid=12345)
 
     assert result["uid"] == 12345
@@ -101,31 +103,31 @@ async def test_get_user_comments_success():
 
 @pytest.mark.asyncio
 async def test_get_user_comments_pagination():
-    ctx, mock_client = _patch_client(COMMENTS_RESPONSE)
-    with ctx:
+    mock_get = AsyncMock(return_value=COMMENTS_DATA)
+    with patch("bilibili_mcp.aicu._get", mock_get):
         result = await aicu.get_user_comments(uid=12345, page=2, page_size=10, mode=1)
 
     assert result["page"] == 2
     assert result["page_size"] == 10
     assert result["mode"] == 1
-    # 验证请求参数
-    call_kwargs = mock_client.get.call_args
-    assert call_kwargs.kwargs["params"]["pn"] == 2
-    assert call_kwargs.kwargs["params"]["ps"] == 10
-    assert call_kwargs.kwargs["params"]["mode"] == 1
+    # 验证请求参数透传
+    call_args = mock_get.call_args
+    params = call_args[0][1]
+    assert params["pn"] == 2
+    assert params["ps"] == 10
+    assert params["mode"] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_user_comments_api_error():
-    ctx, _ = _patch_client({"code": -1, "message": "查询失败"})
-    with ctx:
+    with _patch_get_error("查询失败"):
         with pytest.raises(ValueError, match="aicu.cc 错误"):
             await aicu.get_user_comments(uid=0)
 
 
 # ─── get_user_danmaku ─────────────────────────────────────────────────────────
 
-DANMAKU_RESPONSE = {
+DANMAKU_DATA = {
     "code": 0,
     "data": {
         "cursor": {"all_count": 500, "is_end": False},
@@ -139,8 +141,7 @@ DANMAKU_RESPONSE = {
 
 @pytest.mark.asyncio
 async def test_get_user_danmaku_success():
-    ctx, _ = _patch_client(DANMAKU_RESPONSE)
-    with ctx:
+    with _patch_get_raw(DANMAKU_DATA):
         result = await aicu.get_user_danmaku(uid=12345)
 
     assert result["uid"] == 12345
@@ -153,8 +154,7 @@ async def test_get_user_danmaku_success():
 
 @pytest.mark.asyncio
 async def test_get_user_danmaku_empty():
-    ctx, _ = _patch_client({"code": 0, "data": {"cursor": {"all_count": 0, "is_end": True}, "videodmlist": []}})
-    with ctx:
+    with _patch_get_raw({"code": 0, "data": {"cursor": {"all_count": 0, "is_end": True}, "videodmlist": []}}):
         result = await aicu.get_user_danmaku(uid=12345)
 
     assert result["total"] == 0
@@ -164,15 +164,14 @@ async def test_get_user_danmaku_empty():
 
 @pytest.mark.asyncio
 async def test_get_user_danmaku_api_error():
-    ctx, _ = _patch_client({"code": -1, "message": "服务异常"})
-    with ctx:
+    with _patch_get_error("服务异常"):
         with pytest.raises(ValueError, match="aicu.cc 错误"):
             await aicu.get_user_danmaku(uid=0)
 
 
 # ─── get_user_live_danmaku ────────────────────────────────────────────────────
 
-LIVE_DANMAKU_RESPONSE = {
+LIVE_DANMAKU_DATA = {
     "code": 0,
     "data": {
         "cursor": {"all_count": 3, "is_end": True},
@@ -197,8 +196,7 @@ LIVE_DANMAKU_RESPONSE = {
 
 @pytest.mark.asyncio
 async def test_get_user_live_danmaku_success():
-    ctx, _ = _patch_client(LIVE_DANMAKU_RESPONSE)
-    with ctx:
+    with _patch_get_raw(LIVE_DANMAKU_DATA):
         result = await aicu.get_user_live_danmaku(uid=12345)
 
     assert result["uid"] == 12345
@@ -217,8 +215,7 @@ async def test_get_user_live_danmaku_success():
 
 @pytest.mark.asyncio
 async def test_get_user_live_danmaku_empty():
-    ctx, _ = _patch_client({"code": 0, "data": {"cursor": {"all_count": 0, "is_end": True}, "list": []}})
-    with ctx:
+    with _patch_get_raw({"code": 0, "data": {"cursor": {"all_count": 0, "is_end": True}, "list": []}}):
         result = await aicu.get_user_live_danmaku(uid=12345)
 
     assert result["total"] == 0
@@ -227,7 +224,6 @@ async def test_get_user_live_danmaku_empty():
 
 @pytest.mark.asyncio
 async def test_get_user_live_danmaku_api_error():
-    ctx, _ = _patch_client({"code": -1, "message": "查询失败"})
-    with ctx:
+    with _patch_get_error("查询失败"):
         with pytest.raises(ValueError, match="aicu.cc 错误"):
             await aicu.get_user_live_danmaku(uid=0)

@@ -35,8 +35,8 @@ def _get_api_key() -> str:
     return key
 
 
-async def _get_stream_url(room_id: int) -> str:
-    """获取直播间的流地址，优先返回 m3u8（HLS），更稳定。"""
+async def _get_stream_url(room_id: int) -> tuple[str, str]:
+    """获取直播间的流地址，返回 (stream_url, buvid3)。优先返回 m3u8（HLS），更稳定。"""
     url = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo"
     params = {
         "room_id": room_id,
@@ -47,8 +47,16 @@ async def _get_stream_url(room_id: int) -> str:
         "platform": "web",
         "ptype": 8,
     }
-    async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
-        resp = await client.get(url, params=params)
+    async with httpx.AsyncClient(headers=HEADERS, timeout=15) as client:
+        # 先获取 buvid3，让 B 站识别为正常浏览器请求，返回可访问的 CDN 节点
+        buvid3 = ""
+        try:
+            r0 = await client.get("https://www.bilibili.com/", follow_redirects=True)
+            buvid3 = r0.cookies.get("buvid3", "")
+        except Exception:
+            pass
+        cookies = {"buvid3": buvid3} if buvid3 else {}
+        resp = await client.get(url, params=params, cookies=cookies)
         resp.raise_for_status()
         data = resp.json()
 
@@ -72,7 +80,7 @@ async def _get_stream_url(room_id: int) -> str:
                         if url_infos and base_url:
                             host = url_infos[0]["host"]
                             extra = url_infos[0].get("extra", "")
-                            return f"{host}{base_url}{extra}"
+                            return f"{host}{base_url}{extra}", buvid3
     except (KeyError, IndexError, TypeError) as e:
         raise ValueError(f"解析直播流地址失败: {e}") from e
 
@@ -80,21 +88,26 @@ async def _get_stream_url(room_id: int) -> str:
 
 
 _FFMPEG_HEADERS = (
-    "Referer: https://live.bilibili.com/\r\n"
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/122.0.0.0 Safari/537.36\r\n"
-    "Origin: https://live.bilibili.com"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36\r\n"
+    "Referer: https://live.bilibili.com/\r\n"
+    "Origin: https://live.bilibili.com\r\n"
+    "Accept: */*\r\n"
+    "Accept-Language: zh-CN,zh;q=0.9\r\n"
+    # 每行必须以 \r\n 结尾，ffmpeg 要求
 )
 
 
-def _record_video(stream_url: str, duration: int, output_path: str) -> None:
+def _record_video(stream_url: str, duration: int, output_path: str, buvid3: str = "") -> None:
     """录制视频片段（含音视频）。"""
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    headers = _FFMPEG_HEADERS
+    if buvid3:
+        headers += f"Cookie: buvid3={buvid3}\r\n"
     cmd = [
         ffmpeg_exe, "-y",
-        "-headers", _FFMPEG_HEADERS,
-        "-timeout", "8000000",
+        "-headers", headers,
+        "-rw_timeout", "10000000",   # 读写超时 10s（微秒），适用于 HLS/HTTP
         "-i", stream_url,
         "-t", str(duration),
         "-c:v", "libx264", "-c:a", "aac",
@@ -103,7 +116,7 @@ def _record_video(stream_url: str, duration: int, output_path: str) -> None:
         "-movflags", "+faststart",
         output_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 40)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 50)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg 录制失败:\n{result.stderr[-2000:]}")
 
@@ -114,7 +127,7 @@ def _extract_audio(stream_url: str, duration: int, output_path: str) -> None:
     cmd = [
         ffmpeg_exe, "-y",
         "-headers", _FFMPEG_HEADERS,
-        "-timeout", "8000000",
+        "-rw_timeout", "8000000",  # 读写超时 8s（微秒），适用于 HLS/HTTP
         "-i", stream_url,
         "-t", str(duration),
         "-vn",                    # 不要视频
@@ -207,16 +220,15 @@ async def get_live_content(
             "message": f"直播间当前状态：{live_info.get('live_status_text', '未开播')}，无法分析内容",
         }
 
-    stream_url = await _get_stream_url(room_id)
+    stream_url, buvid3 = await _get_stream_url(room_id)
     loop = asyncio.get_event_loop()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = os.path.join(tmpdir, "segment.mp4")
         audio_path = os.path.join(tmpdir, "audio.wav")
 
-        # 并行录制视频和提取音频（两次独立连接，各自获取最新流地址避免竞争）
         # 先录视频（含音频），再从视频中提取音频，避免两次请求流地址
-        await loop.run_in_executor(None, _record_video, stream_url, duration, video_path)
+        await loop.run_in_executor(None, _record_video, stream_url, duration, video_path, buvid3)
 
         # 从已录制的视频中提取音频（不再请求网络）
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()

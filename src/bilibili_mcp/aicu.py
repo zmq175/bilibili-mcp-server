@@ -1,20 +1,32 @@
 """aicu.cc 接口封装：查询 B 站用户的粉丝牌、历史评论、历史弹幕、直播弹幕。
 
-aicu.cc 是第三方数据平台，数据非实时，所有接口均无需登录或 Cookie。
+aicu.cc 是第三方数据平台，数据非实时。
+该站使用 Cloudflare Bot 检测，需要 curl_cffi 模拟真实浏览器 TLS 指纹。
 """
 
-import httpx
+from curl_cffi.requests import AsyncSession
 
 BASE_URL = "https://api.aicu.cc/api/v3"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.aicu.cc/",
-}
+# curl_cffi 通过 impersonate 参数模拟真实浏览器，无需手动设置 headers
+_IMPERSONATE = "chrome124"
+
+
+async def _get(url: str, params: dict) -> dict:
+    """用 curl_cffi 发起 GET 请求，绕过 Cloudflare TLS 指纹检测。"""
+    async with AsyncSession(impersonate=_IMPERSONATE) as session:
+        resp = await session.get(
+            url,
+            params=params,
+            headers={"Referer": "https://www.aicu.cc/"},
+            timeout=15,
+        )
+    if resp.status_code != 200:
+        raise ValueError(f"aicu.cc 请求失败: HTTP {resp.status_code}")
+    data = resp.json()
+    if data.get("code") != 0:
+        raise ValueError(f"aicu.cc 错误: {data.get('message', '未知错误')}")
+    return data
 
 
 async def get_user_medals(uid: int) -> dict:
@@ -29,15 +41,7 @@ async def get_user_medals(uid: int) -> dict:
         - level: 粉丝牌等级
         - ruid: 对应主播的 UID
     """
-    url = f"{BASE_URL}/user/getmedal"
-    async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
-        resp = await client.get(url, params={"uid": uid})
-        resp.raise_for_status()
-        data = resp.json()
-
-    if data.get("code") != 0:
-        raise ValueError(f"aicu.cc 错误: {data.get('message', '未知错误')}")
-
+    data = await _get(f"{BASE_URL}/user/getmedal", {"uid": uid})
     medals = data.get("data", {}).get("list", [])
     return {
         "uid": uid,
@@ -75,16 +79,7 @@ async def get_user_comments(
         - oid: 所在视频/动态的 ID
         - type: 内容类型（1=视频, 11=动态等）
     """
-    url = f"{BASE_URL}/search/getreply"
-    params = {"uid": uid, "pn": page, "ps": page_size, "mode": mode}
-    async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
-        resp = await client.get(url, params=params)
-        resp.raise_for_status()
-        data = resp.json()
-
-    if data.get("code") != 0:
-        raise ValueError(f"aicu.cc 错误: {data.get('message', '未知错误')}")
-
+    data = await _get(f"{BASE_URL}/search/getreply", {"uid": uid, "pn": page, "ps": page_size, "mode": mode})
     cursor = data.get("data", {}).get("cursor", {})
     replies = data.get("data", {}).get("replies", [])
     return {
@@ -121,18 +116,9 @@ async def get_user_danmaku(uid: int, page: int = 1, page_size: int = 20) -> dict
         - content: 弹幕内容
         - ctime: 发送时间戳（Unix 秒）
         - oid: 所在视频的 AV 号
-        - progress: 弹幕出现的视频时间轴位置（毫秒）
+        - progress_ms: 弹幕出现的视频时间轴位置（毫秒）
     """
-    url = f"{BASE_URL}/search/getvideodm"
-    params = {"uid": uid, "pn": page, "ps": page_size}
-    async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
-        resp = await client.get(url, params=params)
-        resp.raise_for_status()
-        data = resp.json()
-
-    if data.get("code") != 0:
-        raise ValueError(f"aicu.cc 错误: {data.get('message', '未知错误')}")
-
+    data = await _get(f"{BASE_URL}/search/getvideodm", {"uid": uid, "pn": page, "ps": page_size})
     cursor = data.get("data", {}).get("cursor", {})
     dmlist = data.get("data", {}).get("videodmlist", [])
     return {
@@ -170,16 +156,7 @@ async def get_user_live_danmaku(uid: int, page: int = 1, page_size: int = 20) ->
         - room_name: 直播间标题
         - danmaku: 该直播间的弹幕列表，每条含 text（内容）和 ts（时间戳）
     """
-    url = f"{BASE_URL}/search/getlivedm"
-    params = {"uid": uid, "pn": page, "ps": page_size}
-    async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
-        resp = await client.get(url, params=params)
-        resp.raise_for_status()
-        data = resp.json()
-
-    if data.get("code") != 0:
-        raise ValueError(f"aicu.cc 错误: {data.get('message', '未知错误')}")
-
+    data = await _get(f"{BASE_URL}/search/getlivedm", {"uid": uid, "pn": page, "ps": page_size})
     cursor = data.get("data", {}).get("cursor", {})
     items = data.get("data", {}).get("list", [])
     return {
