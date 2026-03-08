@@ -1,5 +1,0 @@
-fix: improve 403 error message for aicu.cc cloud IP block
-
-- Return clear error message when aicu.cc returns 403 (cloud server IP blocked by Cloudflare)
-- Add note in tool descriptions that aicu.cc-based tools are unavailable in cloud deployment
-- Bump version to 0.2.3
