@@ -1,8 +1,30 @@
 {
+  "_comment": "从下面两种方式中选一种，填入你的 MCP 客户端配置文件",
+
   "mcpServers": {
-    "bilibili": {
-      "command": "D:\\projects\\bilibili-mcp-server\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "bilibili_mcp.server"]
+
+    "========== 方式一：本地运行（stdio）==========": {},
+
+    "bilibili-local": {
+      "_comment": "适用于 Cursor / Claude Desktop 本地部署",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "D:/projects/bilibili-mcp-server",
+        "bilibili-mcp"
+      ],
+      "env": {
+        "SILICONFLOW_API_KEY": "sk-你的硅基流动Key"
+      }
+    },
+
+    "========== 方式二：云端远程（SSE）==========": {},
+
+    "bilibili-remote": {
+      "_comment": "适用于已部署到 ModelScope MCP 广场的远程服务，API Key 在服务端配置，此处无需填写",
+      "url": "https://modelscope.cn/studios/你的ModelScope用户名/bilibili-mcp-server/sse"
     }
+
   }
 }
