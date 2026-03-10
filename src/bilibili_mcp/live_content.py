@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import imageio_ffmpeg
 
-from bilibili_mcp.bilibili import HEADERS, get_live_status
+from bilibili_mcp.bilibili import HEADERS, get_live_status, search_user
 
 # 硅基流动 API 配置
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
@@ -186,16 +186,57 @@ async def _vl_analyze(video_path: str, api_key: str, model: str, prompt: str) ->
         return resp.json()["choices"][0]["message"]["content"]
 
 
+async def _resolve_room_id(
+    room_id: int | None = None,
+    uid: int | None = None,
+    username: str | None = None,
+) -> int:
+    """将 uid 或用户名解析为直播间 ID。room_id、uid、username 三者至少提供一个。"""
+    if room_id is not None:
+        return room_id
+
+    if username is not None and uid is None:
+        result = await search_user(keyword=username)
+        users = result.get("users", [])
+        if not users:
+            raise ValueError(f"未找到用户名为 '{username}' 的用户")
+        uid = users[0]["uid"]
+
+    if uid is not None:
+        async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
+            resp = await client.get(
+                "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
+                params={"mid": uid},
+            )
+            resp.raise_for_status()
+            info = resp.json()
+            if info.get("code") != 0:
+                raise ValueError(f"获取直播间信息失败: {info.get('message', '该用户可能没有直播间')}")
+            resolved_room_id = info["data"]["roomid"]
+            if resolved_room_id == 0:
+                raise ValueError(f"UID {uid} 的用户没有直播间")
+            return resolved_room_id
+
+    raise ValueError("room_id、uid 和 username 至少需要提供一个")
+
+
 async def get_live_content(
-    room_id: int,
+    room_id: int | None = None,
+    uid: int | None = None,
+    username: str | None = None,
     duration: int = 15,
     vl_model: str = DEFAULT_VL_MODEL,
     asr_model: str = DEFAULT_ASR_MODEL,
 ) -> dict:
-    """录制直播片段，同时进行 ASR 语音识别和视觉画面分析，综合描述直播内容。
+    """获取B站主播直播内容。
+
+    录制直播片段，同时进行 ASR 语音识别和视觉画面分析，综合描述直播内容。
+    room_id、uid、username 三者至少提供一个；若提供 username，会先搜索匹配的第一个用户。
 
     Args:
         room_id: 直播间 ID
+        uid: 主播的 B 站用户 UID
+        username: 主播用户名（昵称），会自动搜索匹配的第一个用户
         duration: 录制时长（秒），默认 15 秒，建议 10-30
         vl_model: 视觉语言模型，默认 Qwen3-VL-8B-Instruct
         asr_model: 语音识别模型，默认 FunAudioLLM/SenseVoiceSmall
@@ -207,6 +248,8 @@ async def get_live_content(
     本地部署在 MCP 配置的 env 中设置；云端部署在平台的 Secret/环境变量中设置。
     """
     key = _get_api_key()
+
+    room_id = await _resolve_room_id(room_id=room_id, uid=uid, username=username)
 
     # 先检查是否在播
     live_info = await get_live_status(room_id=room_id)

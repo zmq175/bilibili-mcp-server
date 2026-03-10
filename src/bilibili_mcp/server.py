@@ -18,9 +18,10 @@ from bilibili_mcp.live_content import get_live_content as _get_live_content
 mcp = FastMCP(
     name="bilibili-mcp-server",
     instructions=(
-        "B站工具集，可查询主播开播状态、用户粉丝牌、历史评论、历史弹幕、直播弹幕，以及分析直播内容。\n"
+        "B站工具集，可查询主播开播状态、用户粉丝牌、历史评论、历史弹幕、直播弹幕，以及实时分析直播内容。\n"
         "如果只知道用户名而不知道 UID，请先调用 search_user 查找 UID。\n"
-        "如需了解主播正在直播什么内容，使用 get_live_content（需提供硅基流动 API Key）。"
+        "当用户询问某主播'在播什么'、'直播内容是什么'、'现在直播什么游戏/歌曲'等问题时，"
+        "直接调用 get_live_content 并传入 username，无需先查询 UID 或 room_id。"
     ),
 )
 
@@ -111,23 +112,25 @@ async def get_user_live_danmaku(
 
 @mcp.tool()
 async def get_live_content(
-    room_id: Annotated[int, "直播间 ID"],
+    room_id: Annotated[int | None, "直播间 ID（与 uid、username 三选一）"] = None,
+    uid: Annotated[int | None, "主播的 B 站用户 UID（与 room_id、username 三选一）"] = None,
+    username: Annotated[str | None, "主播用户名/昵称（与 room_id、uid 三选一），自动搜索匹配的第一个用户"] = None,
     duration: Annotated[int, "录制时长（秒），建议 10-30，默认 15"] = 15,
     vl_model: Annotated[str, f"视觉语言模型，默认 {DEFAULT_VL_MODEL}"] = DEFAULT_VL_MODEL,
     asr_model: Annotated[str, f"语音识别模型，默认 {DEFAULT_ASR_MODEL}"] = DEFAULT_ASR_MODEL,
 ) -> dict:
-    """录制直播片段，同时进行 ASR 语音识别和视觉画面分析，综合描述直播内容。
+    """实时获取 B 站主播正在直播的内容，回答"XX在播什么"类问题。
 
-    工作流程：
-    1. 检查直播间是否在播；
-    2. 获取直播流地址并用 ffmpeg 录制片段（无需系统安装 ffmpeg）；
-    3. 并行执行：ASR 语音转录（SenseVoiceSmall）+ 视觉画面分析（Qwen3-VL）；
-    4. 返回语音转录原文（transcript）和画面描述（visual）。
+    通过录制直播片段并结合 ASR 语音转录和视觉画面分析，返回主播当前正在播的内容描述。
+    当用户询问某主播"在直播什么"、"在玩什么游戏"、"在唱什么歌"、"直播间在干什么"时调用此工具。
 
+    支持直接传入 username（主播昵称）、uid 或 room_id，三者至少提供一个。
     硅基流动 API Key 通过服务端环境变量 SILICONFLOW_API_KEY 配置，无需在调用时传入。
     """
     return await _get_live_content(
         room_id=room_id,
+        uid=uid,
+        username=username,
         duration=duration,
         vl_model=vl_model,
         asr_model=asr_model,
